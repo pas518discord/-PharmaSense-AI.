@@ -1,0 +1,751 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PharmaSense AI — Real-Time Web Dashboard</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --border-color: #475569;
+            
+            /* Status colors */
+            --color-nominal: #10b981;
+            --color-warning: #f59e0b;
+            --color-critical: #ef4444;
+            --color-nominal-trans: rgba(16, 185, 129, 0.15);
+            --color-warning-trans: rgba(245, 158, 11, 0.15);
+            --color-critical-trans: rgba(239, 68, 68, 0.15);
+            
+            --accent-blue: #3b82f6;
+            --font-stack: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            font-family: var(--font-stack);
+            padding: 24px;
+            min-width: 1280px;
+            line-height: 1.5;
+        }
+
+        /* --- Header Layout --- */
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 24px;
+            padding-bottom: 16px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .header-title-area {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        h1 {
+            font-size: 28px;
+            font-weight: 700;
+            letter-spacing: -0.025em;
+        }
+
+        .live-badge {
+            background-color: var(--color-nominal-trans);
+            color: var(--color-nominal);
+            padding: 6px 12px;
+            border-radius: 9999px;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid var(--color-nominal);
+        }
+
+        .live-badge::before {
+            content: "●";
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { opacity: 0.3; }
+            50% { opacity: 1; }
+            100% { opacity: 0.3; }
+        }
+
+        .timestamp-area {
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-family: monospace;
+        }
+
+        /* --- Metrics Summary Row --- */
+        .metrics-row {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .metric-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .metric-title {
+            color: var(--text-secondary);
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            margin-bottom: 8px;
+        }
+
+        .metric-value {
+            font-size: 32px;
+            font-weight: 700;
+        }
+
+        /* Dynamic metrics alerting classes */
+        .metric-card.critical-alert {
+            border-color: var(--color-critical);
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--color-critical-trans) 100%);
+        }
+        .metric-card.critical-alert .metric-value { color: var(--color-critical); }
+
+        .metric-card.warning-alert {
+            border-color: var(--color-warning);
+            background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--color-warning-trans) 100%);
+        }
+        .metric-card.warning-alert .metric-value { color: var(--color-warning); }
+
+        /* --- Main Two-Column Structure --- */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 7fr 5fr;
+            gap: 20px;
+            margin-bottom: 24px;
+        }
+
+        .panel {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 24px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .panel-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 16px;
+            color: var(--text-primary);
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 8px;
+        }
+
+        /* Roster Table Layout */
+        .table-container {
+            overflow-x: auto;
+            flex-grow: 1;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            text-align: left;
+        }
+
+        th {
+            color: var(--text-secondary);
+            font-weight: 600;
+            font-size: 13px;
+            text-transform: uppercase;
+            padding: 12px 16px;
+            border-bottom: 2px solid var(--border-color);
+        }
+
+        td {
+            padding: 14px 16px;
+            border-bottom: 1px solid var(--border-color);
+            font-size: 14px;
+        }
+
+        tbody tr {
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        tbody tr:hover {
+            background-color: var(--bg-tertiary);
+        }
+
+        tbody tr.selected {
+            background-color: rgba(59, 130, 246, 0.2);
+            border-left: 4px solid var(--accent-blue);
+        }
+
+        /* Status Pills mapping values */
+        .pill {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 9999px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .pill.nominal { background-color: var(--color-nominal-trans); color: var(--color-nominal); border: 1px solid var(--color-nominal); }
+        .pill.warning { background-color: var(--color-warning-trans); color: var(--color-warning); border: 1px solid var(--color-warning); }
+        .pill.critical { background-color: var(--color-critical-trans); color: var(--color-critical); border: 1px solid var(--color-critical); }
+
+        /* --- Detail Workspace Right Hand Side --- */
+        .detail-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 20px;
+        }
+
+        .detail-header h2 {
+            font-size: 22px;
+            font-weight: 700;
+        }
+
+        .detail-header p {
+            color: var(--text-secondary);
+            font-size: 13px;
+        }
+
+        /* SVG Arc Gauge Styling */
+        .gauge-container {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            margin: 10px auto 20px auto;
+            width: 240px;
+            height: 140px;
+        }
+
+        .gauge-svg {
+            width: 100%;
+            height: 100%;
+        }
+
+        .gauge-bg {
+            fill: none;
+            stroke: var(--bg-tertiary);
+            stroke-width: 14;
+            stroke-linecap: round;
+        }
+
+        .gauge-target-zone {
+            fill: none;
+            stroke: rgba(16, 185, 129, 0.4);
+            stroke-width: 14;
+        }
+
+        .gauge-fill {
+            fill: none;
+            stroke-width: 14;
+            stroke-linecap: round;
+            transition: stroke-dasharray 0.5s ease-in-out, stroke 0.5s;
+        }
+
+        .gauge-fill.nominal { stroke: var(--color-nominal); }
+        .gauge-fill.warning { stroke: var(--color-warning); }
+        .gauge-fill.critical { stroke: var(--color-critical); }
+
+        .gauge-text {
+            position: absolute;
+            bottom: 10px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .gauge-temp-val {
+            font-size: 32px;
+            font-weight: 800;
+            font-family: monospace;
+        }
+
+        .gauge-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            text-transform: uppercase;
+            margin-top: -4px;
+        }
+
+        /* Action box recommendations design schema */
+        .action-box {
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+            border-left: 4px solid transparent;
+        }
+
+        .action-box.nominal { background-color: var(--color-nominal-trans); border-left-color: var(--color-nominal); }
+        .action-box.warning { background-color: var(--color-warning-trans); border-left-color: var(--color-warning); }
+        .action-box.critical { background-color: var(--color-critical-trans); border-left-color: var(--color-critical); }
+
+        .action-title {
+            font-weight: 700;
+            font-size: 14px;
+            margin-bottom: 4px;
+            text-transform: uppercase;
+        }
+
+        .action-desc {
+            font-size: 13.5px;
+            color: #e2e8f0;
+        }
+
+        /* Fault Log Listing implementation */
+        .log-list {
+            list-style: none;
+            font-size: 13px;
+            font-family: monospace;
+            max-height: 120px;
+            overflow-y: auto;
+            background-color: var(--bg-primary);
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid var(--border-color);
+            margin-bottom: 20px;
+        }
+
+        .log-item {
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            display: flex;
+            gap: 12px;
+        }
+
+        .log-item:last-child { border: none; }
+        .log-time { color: var(--text-secondary); }
+        .log-msg.err { color: var(--color-critical); }
+        .log-msg.warn { color: var(--color-warning); }
+        .log-msg.ok { color: var(--color-nominal); }
+
+        /* Functional interactive button metrics setup */
+        .btn {
+            background-color: var(--accent-blue);
+            color: #ffffff;
+            border: none;
+            border-radius: 6px;
+            padding: 12px 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: background-color 0.2s, opacity 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.025em;
+        }
+
+        .btn:hover { background-color: #2563eb; }
+        .btn:disabled {
+            background-color: var(--bg-tertiary);
+            color: var(--text-secondary);
+            cursor: not-allowed;
+            opacity: 0.6;
+        }
+
+        /* --- Bottom Line Trends Section --- */
+        .trend-container {
+            min-height: 260px;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="header-title-area">
+            <h1>💊 PharmaSense AI</h1>
+            <div class="live-badge">Live monitoring</div>
+        </div>
+        <div class="timestamp-area" id="last-updated-stamp">
+            System Synchronization: 2026-06-15 17:18:57
+        </div>
+    </header>
+
+    <div class="metrics-row" id="metrics-summary-bar">
+        <div class="metric-card critical-alert">
+            <div class="metric-title">Critical Units</div>
+            <div class="metric-value" id="count-critical">1</div>
+        </div>
+        <div class="metric-card warning-alert">
+            <div class="metric-title">Units At Risk</div>
+            <div class="metric-value" id="count-risk">2</div>
+        </div>
+        <div class="metric-card">
+            <div class="metric-title">Avg Target Variance</div>
+            <div class="metric-value" id="avg-variance">±0.34°C</div>
+        </div>
+        <div class="metric-card critical-alert">
+            <div class="metric-title">Products At Risk</div>
+            <div class="metric-value" id="count-products">15 Lots</div>
+        </div>
+    </div>
+
+    <div class="main-grid">
+        
+        <div class="panel">
+            <div class="panel-title">Asset Fleet Inventory Matrix (WHO Cold Chain)</div>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Unit ID</th>
+                            <th>Equipment Type</th>
+                            <th>Facility Site</th>
+                            <th>Telemetry Temp</th>
+                            <th>Status State</th>
+                            <th>Calculated Risk</th>
+                        </tr>
+                    </thead>
+                    <tbody id="roster-table-body">
+                        </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel" id="detail-workspace-panel">
+            <div class="detail-header">
+                <div>
+                    <h2 id="detail-unit-id">FZ-01</h2>
+                    <p id="detail-type-site">PharmaFreezer — Cluster Site Alpha</p>
+                </div>
+                <span class="pill critical" id="detail-status-pill">COMPRESSOR_FAIL</span>
+            </div>
+
+            <div class="gauge-container">
+                <svg class="gauge-svg" viewBox="0 0 200 120">
+                    <path class="gauge-bg" d="M 20 100 A 80 80 0 0 1 180 100" />
+                    <path class="gauge-target-zone" d="M 30 84 A 80 80 0 0 1 90 24" />
+                    <path class="gauge-fill critical" id="gauge-fill-arc" d="M 20 100 A 80 80 0 0 1 180 100" stroke-dasharray="251.2" stroke-dashoffset="60" />
+                </svg>
+                <div class="gauge-text">
+                    <span class="gauge-temp-val" id="gauge-temp-display">7.4°C</span>
+                    <span class="gauge-label">Internal Temp</span>
+                </div>
+            </div>
+
+            <div class="action-box critical" id="detail-action-box">
+                <div class="action-title" id="detail-action-title">Emergency Action Plan Required</div>
+                <div class="action-desc" id="detail-action-desc">CRITICAL: Compressor failure detected. True operating environment drifting outwards at +0.8°C/hour. Authorize replacement workflow.</div>
+            </div>
+
+            <div style="font-weight: 600; font-size: 13px; margin-bottom: 6px; text-transform: uppercase; color: var(--text-secondary);">
+                Active Fault Analysis Matrix
+            </div>
+            <ul class="log-list" id="detail-log-list">
+                </ul>
+
+            <button class="btn" id="action-dispatch-btn" onclick="triggerHitlWorkflow()">Approve Corrective Action Plan</button>
+        </div>
+    </div>
+
+    <div class="panel">
+        <div class="panel-title" id="chart-panel-title">Telemetry Time-Series Log Trend — FZ-01</div>
+        <div class="trend-container">
+            <canvas id="telemetryHistoryChart" height="80"></canvas>
+        </div>
+    </div>
+
+    <script>
+        // --- Structured Hardware Mock Telemetry Datastore Context ---
+        const assetFleetDataset = {
+            "FZ-01": {
+                id: "FZ-01",
+                type: "PharmaFreezer",
+                site: "Cluster Site Alpha",
+                temp: 7.4,
+                status: "CRITICAL",
+                statusLabel: "COMPRESSOR_FAIL",
+                risk: "95%",
+                variance: "+1.4°C",
+                productsAffected: "15 Lots (Insulin/Biologics)",
+                actionTitle: "🚨 EMERGENCY_COMPRESSOR_REPLACEMENT",
+                actionDesc: "CRITICAL: Compressor telemetry loop indicates zero coolant cycle pressure. Core environment warming at +0.8°C/hr. Deploy field service and initiate buffer quarantine storage cascade immediately.",
+                buttonEnabled: true,
+                logs: [
+                    { time: "17:15:02", msg: "CRITICAL: Compressor operational cycling validation feedback timeout", type: "err" },
+                    { time: "16:45:00", msg: "WARNING: High velocity upward temperature acceleration detected", type: "warn" },
+                    { time: "12:00:00", msg: "System execution bounds validation verification routine pass nominal", type: "ok" }
+                ],
+                chartLabels: ["11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"],
+                chartData: [4.1, 4.2, 4.0, 4.3, 4.9, 5.8, 7.4],
+                gaugeOffset: 65, // Computed stroke-dashoffset representation maps values
+                gaugeClass: "critical"
+            },
+            "FZ-04": {
+                id: "FZ-04",
+                type: "PharmaFreezer",
+                site: "Regional Facility Gamma",
+                temp: 5.2,
+                status: "WARNING",
+                statusLabel: "POWER_LOSS",
+                risk: "88%",
+                variance: "+0.9°C",
+                productsAffected: "8 Lots (Blood Plasma Subsets)",
+                actionTitle: "⚠️ EXECUTE_AUXILIARY_DIESEL_GENERATOR_FAILOVER",
+                actionDesc: "WARNING: Main grid line monitoring interface dropped state loops. Local thermal mass buffer decaying at +2.0°C/hr. Verify emergency electrical transfer switches manually.",
+                buttonEnabled: true,
+                logs: [
+                    { time: "17:02:11", msg: "WARNING: Primary line energy transformer current phase drop detected", type: "warn" },
+                    { time: "15:00:00", msg: "Periodic battery cell capacity impedance inspection logged nominal", type: "ok" }
+                ],
+                chartLabels: ["11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"],
+                chartData: [4.0, 4.0, 4.1, 4.0, 4.0, 4.2, 5.2],
+                gaugeOffset: 120,
+                gaugeClass: "warning"
+            },
+            "DD-01": {
+                id: "DD-01",
+                type: "DrugDispenser",
+                site: "Cluster Site Alpha",
+                temp: 4.8,
+                status: "WARNING",
+                statusLabel: "ACCESS_ANOMALY",
+                risk: "74%",
+                variance: "+0.1°C",
+                productsAffected: "None (High-Value Vault)",
+                actionTitle: "🔒 LOCKDOWN_SECURE_PERIMETER",
+                actionDesc: "COMPLIANCE ALERT: Recursive RFID badge verification rejection vectors identified from unknown token parameters. Dispatch regional asset security teams for localized intervention loops.",
+                buttonEnabled: true,
+                logs: [
+                    { time: "17:10:45", msg: "SECURITY: Token lockout activated following consecutive badge rejections", type: "warn" },
+                    { time: "17:08:12", msg: "SECURITY: Access denied vector signature logged - Token structure unknown", type: "warn" }
+                ],
+                chartLabels: ["11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"],
+                chartData: [4.6, 4.7, 4.8, 4.6, 4.7, 4.7, 4.8],
+                gaugeOffset: 150,
+                gaugeClass: "warning"
+            },
+            "BS-03": {
+                id: "BS-03",
+                type: "BloodStorage",
+                site: "Distribution Center Beta",
+                temp: 4.0,
+                status: "NOMINAL",
+                statusLabel: "NOMINAL",
+                risk: "0%",
+                variance: "0.0°C",
+                productsAffected: "0 Units",
+                actionTitle: "✅ OPERATIONS PROFILE COMPLIANT",
+                actionDesc: "All parameters map precisely within GxP WHO guidelines metrics. Mechanical refrigeration assets display optimal environmental containment conditions. No automation interventions needed.",
+                buttonEnabled: false,
+                logs: [
+                    { time: "16:00:00", msg: "Environmental stabilization cycle loop validation parameters healthy", type: "ok" },
+                    { time: "12:00:00", msg: "Internal gas concentration calibration vectors baseline match perfect", type: "ok" }
+                ],
+                chartLabels: ["11:00", "12:00", "13:00", "14:00", "15:00", "16:00", "17:00"],
+                chartData: [3.9, 4.1, 4.0, 4.0, 4.1, 3.9, 4.0],
+                gaugeOffset: 180,
+                gaugeClass: "nominal"
+            }
+        };
+
+        let activeSelectedUnitId = "FZ-01";
+        let trackingHistoryChartObject = null;
+
+        // --- Core Application Workspace Initialization Hook ---
+        window.addEventListener('DOMContentLoaded', () => {
+            renderRosterTable();
+            displaySelectedUnitContext(activeSelectedUnitId);
+            setupAutoRefreshTimer();
+        });
+
+        // --- UI Rendering Engines ---
+        function renderRosterTable() {
+            const tableBody = document.getElementById("roster-table-body");
+            tableBody.innerHTML = "";
+
+            Object.values(assetFleetDataset).forEach(unit => {
+                const row = document.createElement("tr");
+                if (unit.id === activeSelectedUnitId) row.className = "selected";
+                
+                let statusClass = "nominal";
+                if (unit.status === "WARNING") statusClass = "warning";
+                if (unit.status === "CRITICAL") statusClass = "critical";
+
+                row.innerHTML = `
+                    <td style="font-weight: 700; color: var(--accent-blue);">${unit.id}</td>
+                    <td>${unit.type}</td>
+                    <td>${unit.site}</td>
+                    <td style="font-family: monospace; font-weight: 600;">${unit.temp.toFixed(1)}°C</td>
+                    <td><span class="pill ${statusClass}">${unit.statusLabel}</span></td>
+                    <td style="font-weight: 600;">${unit.risk}</td>
+                `;
+
+                row.addEventListener('click', () => {
+                    document.querySelectorAll("#roster-table-body tr").forEach(r => r.classList.remove("selected"));
+                    row.classList.add("selected");
+                    displaySelectedUnitContext(unit.id);
+                });
+
+                tableBody.appendChild(row);
+            });
+        }
+
+        function displaySelectedUnitContext(unitId) {
+            activeSelectedUnitId = unitId;
+            const unit = assetFleetDataset[unitId];
+
+            // Primary labels mapping data
+            document.getElementById("detail-unit-id").innerText = unit.id;
+            document.getElementById("detail-type-site").innerText = `${unit.type} — ${unit.site}`;
+            document.getElementById("gauge-temp-display").innerText = `${unit.temp.toFixed(1)}°C`;
+            
+            // Re-render Status Pill configuration
+            const pill = document.getElementById("detail-status-pill");
+            pill.className = `pill ${unit.status.toLowerCase()}`;
+            pill.innerText = unit.statusLabel;
+
+            // Gauge Arc Manipulation metrics mapping calculations
+            const gaugeFill = document.getElementById("gauge-fill-arc");
+            gaugeFill.className = `gauge-fill ${unit.gaugeClass}`;
+            // Circumference calculation baseline value mapped from standard arcs
+            gaugeFill.style.strokeDashoffset = unit.gaugeOffset;
+
+            // Re-render Action Instruction Container mapping contents
+            const actionBox = document.getElementById("detail-action-box");
+            actionBox.className = `action-box ${unit.status.toLowerCase()}`;
+            document.getElementById("detail-action-title").innerText = unit.actionTitle;
+            document.getElementById("detail-action-desc").innerText = unit.actionDesc;
+
+            // Re-render Action Dispatch Buttons state matrix configuration
+            const btn = document.getElementById("action-dispatch-btn");
+            btn.disabled = !unit.buttonEnabled;
+            btn.innerText = unit.status === "NOMINAL" ? "No Actions Required" : "Approve Corrective Action Plan";
+
+            // Process Fault logs lists loops
+            const logContainer = document.getElementById("detail-log-list");
+            logContainer.innerHTML = "";
+            unit.logs.forEach(log => {
+                const li = document.createElement("li");
+                li.className = "log-item";
+                li.innerHTML = `
+                    <span class="log-time">[${log.time}]</span>
+                    <span class="log-msg ${log.type}">${log.msg}</span>
+                `;
+                logContainer.appendChild(li);
+            });
+
+            // Refresh historical trend analysis timechart parameters views
+            document.getElementById("chart-panel-title").innerText = `Telemetry Time-Series Log Trend — Asset ID: ${unit.id}`;
+            renderTrendTimelineChart(unit);
+        }
+
+        function renderTrendTimelineChart(unit) {
+            const ctx = document.getElementById('telemetryHistoryChart').getContext('2d');
+            
+            // Tear down existing chart instances if allocated to clean context allocations
+            if (trackingHistoryChartObject) {
+                trackingHistoryChartObject.destroy();
+            }
+
+            // Instantiation mapping baseline constraints metrics
+            trackingHistoryChartObject = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: unit.chartLabels,
+                    datasets: [{
+                        label: 'Internal Temperature Telemetry (°C)',
+                        data: unit.chartData,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'rgba(59, 130, 246, 0.1)',
+                        borderWidth: 3,
+                        tension: 0.2,
+                        fill: true,
+                        pointBackgroundColor: '#3b82f6',
+                        pointRadius: 4
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: true,
+                            labels: { color: '#94a3b8', font: { weight: '600' } }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            min: 0,
+                            max: 12,
+                            grid: { color: 'rgba(71, 85, 105, 0.2)' },
+                            ticks: { color: '#94a3b8', font: { family: 'monospace' } }
+                        },
+                        x: {
+                            grid: { display: false },
+                            ticks: { color: '#94a3b8' }
+                        }
+                    }
+                }
+            });
+        }
+
+        // --- Interaction Event Functions ---
+        function triggerHitlWorkflow() {
+            const unit = assetFleetDataset[activeSelectedUnitId];
+            alert(`[Human-in-the-Loop Approval Sent]\n\nDispatched action token for authorization sequence:\nID: ${unit.id}\nAction: ${unit.actionTitle}\n\nPayload status logged out safely onto Splunk audit trails.`);
+        }
+
+        function setupAutoRefreshTimer() {
+            // Evaluates real-time auto-increment sync operations every 30 seconds
+            setInterval(() => {
+                const now = new Date();
+                const timeString = now.getFullYear() + "-" + 
+                    String(now.getMonth() + 1).padStart(2, '0') + "-" + 
+                    String(now.getDate()).padStart(2, '0') + " " + 
+                    String(now.getHours()).padStart(2, '0') + ":" + 
+                    String(now.getMinutes()).padStart(2, '0') + ":" + 
+                    String(now.getSeconds()).padStart(2, '0');
+                
+                document.getElementById("last-updated-stamp").innerText = `System Synchronization: ${timeString}`;
+                
+                // Subtle random micro fluctuation engine simulating active polling updates
+                Object.keys(assetFleetDataset).forEach(key => {
+                    if (assetFleetDataset[key].status !== "CRITICAL") {
+                        const delta = (Math.random() - 0.5) * 0.2;
+                        assetFleetDataset[key].temp += delta;
+                    } else {
+                        // Critical unit drifts upward linearly per instructions bounds
+                        assetFleetDataset[key].temp += 0.05; 
+                    }
+                });
+                
+                // Re-evaluate display frames
+                renderRosterTable();
+                displaySelectedUnitContext(activeSelectedUnitId);
+                
+            }, 30000);
+        }
+    </script>
+</body>
+</html>
